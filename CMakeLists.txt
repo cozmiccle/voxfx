@@ -67,6 +67,7 @@ if(VOXFX_BUILD_GUI)
   target_link_libraries(voxfx PRIVATE voxfx_core Qt6::Widgets)
   target_compile_options(voxfx PRIVATE -Wall -Wextra -Wno-missing-field-initializers)
   install(TARGETS voxfx RUNTIME DESTINATION bin)
+  install(FILES packaging/voxfx.desktop DESTINATION share/applications)
 endif()
 
 # ---- headless smoke-test tool (engine only, no Qt GUI) -------------------------

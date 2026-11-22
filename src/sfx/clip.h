@@ -22,9 +22,9 @@ struct Clip {
 // wait until Meters::cycles has advanced by 2 (every voice checks its slot each
 // block and stops if the pointer changed), then free it. See ClipStore in app.cpp.
 struct ClipBank {
-    std::atomic<const Clip*> slots[kMaxClipSlots] = {};
+    std::atomic<const Clip*> entries[kMaxClipSlots] = {};
     const Clip* get(int i) const {
-        return (i >= 0 && i < kMaxClipSlots) ? slots[i].load(std::memory_order_acquire) : nullptr;
+        return (i >= 0 && i < kMaxClipSlots) ? entries[i].load(std::memory_order_acquire) : nullptr;
     }
 };
 

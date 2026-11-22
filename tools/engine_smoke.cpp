@@ -29,7 +29,7 @@ int main(int argc, char** argv) {
         auto r = loadClip(argv[2], clip);
         if (!r.ok) { fprintf(stderr, "clip: %s\n", r.error.c_str()); return 3; }
         printf("clip: %zu frames, %.1f LUFS, gain %.2f\n", clip.frames(), clip.loudnessLufs, clip.normGain);
-        e.bank().slots[0].store(&clip);
+        e.bank().entries[0].store(&clip);
     }
     // VOXFX_SMOKE_PLAY_AT=<ms>: when to trigger the clip (default 700 ms).
     const char* at = getenv("VOXFX_SMOKE_PLAY_AT");
@@ -50,7 +50,7 @@ int main(int argc, char** argv) {
     printf("rate=%u cycles=%llu peakMicIn=%.3f peakOut=%.3f peakSfx=%.3f\n", e.meters().sampleRate.load(),
            (unsigned long long)e.meters().cycles.load(), maxIn, maxOut, maxSfx);
     for (auto& m : e.microphones()) printf("mic: %s (%s)\n", m.description.c_str(), m.name.c_str());
-    e.bank().slots[0].store(nullptr);
+    e.bank().entries[0].store(nullptr);
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
     e.stop();
     return (st.virtualMicReady && st.engineReady && e.meters().cycles.load() > 0) ? 0 : 1;

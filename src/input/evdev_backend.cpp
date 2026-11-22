@@ -38,8 +38,11 @@ uint32_t modBit(int code) {
 }
 
 bool ignoredKey(int code) {
-    // Touch/tool codes from touchpads and tablets aren't useful triggers.
-    return (code >= BTN_DIGI && code <= BTN_TOOL_QUADTAP) || code == BTN_TOUCH;
+    // Touch/tool codes from touchpads and tablets aren't useful triggers, and the
+    // main mouse buttons would fire every time you click in a window (side
+    // buttons BTN_SIDE/BTN_EXTRA stay bindable).
+    return (code >= BTN_DIGI && code <= BTN_TOOL_QUADTAP) || code == BTN_TOUCH ||
+           code == BTN_LEFT || code == BTN_RIGHT || code == BTN_MIDDLE;
 }
 
 bool isTriggerAxis(int code) {

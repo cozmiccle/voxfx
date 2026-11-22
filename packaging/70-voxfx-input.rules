@@ -1,0 +1,13 @@
+# Lets the logged-in user read specific input devices without joining the
+# `input` group (which grants access to *every* keyboard). Copy to
+# /etc/udev/rules.d/, fill in your device's IDs, then:
+#   sudo udevadm control --reload && sudo udevadm trigger
+#
+# Find the IDs with:  cat /proc/bus/input/devices   (look for Vendor= Product=)
+# or in voxfx's "Input devices…" dialog (evdev:VVVV:PPPP:Name).
+#
+# Example: a USB macro pad with vendor 1234 and product 5678
+#SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="1234", ATTRS{idProduct}=="5678", TAG+="uaccess"
+#
+# Example: all gamepads (most distros already allow this via `uaccess`)
+#SUBSYSTEM=="input", KERNEL=="event*", ENV{ID_INPUT_JOYSTICK}=="1", TAG+="uaccess"

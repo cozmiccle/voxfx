@@ -15,7 +15,7 @@ struct Fixture {
     Fixture(size_t frames = 1000) {
         clip->left.assign(frames, 0.5f);
         clip->right.assign(frames, 0.5f);
-        bank.slots[3].store(clip.get());
+        bank.entries[3].store(clip.get());
         pool.setOutputRate(48000.f);
     }
     int render(int n = 512) {
@@ -72,7 +72,7 @@ TEST_CASE("removing a clip from the bank drops its voices without touching it") 
     Fixture f(48000);
     f.play(PlayMode::Overlap);
     f.render();
-    f.bank.slots[3].store(nullptr);
+    f.bank.entries[3].store(nullptr);
     f.clip.reset(); // freed: the pool must not read it any more
     REQUIRE(f.render() == 0);
 }

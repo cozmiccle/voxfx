@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=voxfx
+GenericName=Voice changer & soundboard
+Comment=Voice effects and a soundboard for your microphone (PipeWire)
+Exec=voxfx
+Icon=audio-input-microphone
+Terminal=false
+Categories=AudioVideo;Audio;
+Keywords=voice;changer;soundboard;microphone;discord;
