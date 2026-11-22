@@ -30,6 +30,7 @@ effected voice mixed with any sound clips you trigger.
   page or a direct .mp3/.ogg/.wav link
 - **Scripting:** `voxfx ctl play "air horn"` etc. Bind these in your desktop's own shortcut settings
 - **Tray icon:** keeps running when the window is closed, so bindings keep working
+- **Dark theme by default.** Switch to Light or "Follow desktop" at the bottom of the left panel
 
 ## Build
 

@@ -4,6 +4,7 @@
 #include "ui/bind_dialog.h"
 #include "ui/devices_dialog.h"
 #include "ui/meter_widget.h"
+#include "ui/theme.h"
 #include "dsp/rnnoise_wrap.h"
 
 #include <QAction>
@@ -212,6 +213,23 @@ QWidget* MainWindow::buildControls() {
     mof->addRow(monMic_);
     lay->addWidget(monitor_);
 
+    // ---- appearance
+    auto* look = new QComboBox;
+    look->addItem("Dark", "dark");
+    look->addItem("Light", "light");
+    look->addItem("Follow desktop", "system");
+    look->setCurrentIndex(std::max(0, look->findData(app_.settings().theme)));
+    connect(look, &QComboBox::activated, this, [this, look](int i) {
+        QString name = look->itemData(i).toString();
+        theme::apply(name);
+        app_.settings().theme = name;
+        app_.saveSettings();
+        refreshStatus();
+        rebuildPads(); // re-colour error labels
+    });
+    auto* lookRow = new QFormLayout;
+    lookRow->addRow("Theme", look);
+    lay->addLayout(lookRow);
     lay->addStretch();
 
     auto* scroll = new QScrollArea;
@@ -262,10 +280,13 @@ void MainWindow::refreshStatus() {
     EngineStatus s = app_.engine().status();
     Meters& m = app_.engine().meters();
     QString txt;
-    if (!s.connected) txt = "<span style='color:#c44'>● Not connected to PipeWire</span>";
-    else if (!s.virtualMicReady) txt = "<span style='color:#c84'>● Creating voxfx Mic…</span>";
-    else if (s.micName.empty()) txt = "<span style='color:#c84'>● No microphone found</span>";
-    else txt = "<span style='color:#3a5'>● Ready</span> — choose <b>voxfx Mic</b> as the microphone in Discord/your game.";
+    auto dot = [](const QColor& c, const QString& t) {
+        return QString("<span style='color:%1'>● %2</span>").arg(theme::css(c), t);
+    };
+    if (!s.connected) txt = dot(theme::error(), "Not connected to PipeWire");
+    else if (!s.virtualMicReady) txt = dot(theme::warn(), "Creating voxfx Mic…");
+    else if (s.micName.empty()) txt = dot(theme::warn(), "No microphone found");
+    else txt = dot(theme::ok(), "Ready") + " — choose <b>voxfx Mic</b> as the microphone in Discord/your game.";
     micStatus_->setText(txt);
     statusBar()->showMessage(QString("%1 Hz · %2 sounds playing · %3")
                                  .arg(m.sampleRate.load())
@@ -402,7 +423,7 @@ void MainWindow::rebuildPads() {
         if (!e.sourceUrl.isEmpty()) tip += "\nFrom: " + e.sourceUrl;
         if (!state.isEmpty()) tip += "\n" + state;
         pad->setToolTip(tip);
-        if (!state.isEmpty() && state != "loading…") pad->setStyleSheet("color: #c44;");
+        if (!state.isEmpty() && state != "loading…") pad->setStyleSheet("color: " + theme::css(theme::error()) + ";");
 
         const QString id = e.id;
         if (e.mode == PlayMode::Hold) {

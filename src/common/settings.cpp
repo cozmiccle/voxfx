@@ -29,6 +29,7 @@ void loadSettings(QSettings& s, Params& p, AppSettings& a) {
     a.micName = s.value("devices/mic").toString();
     a.grabbedDevices = s.value("devices/grabbed").toStringList();
     a.startMinimized = s.value("ui/startMinimized", false).toBool();
+    a.theme = s.value("ui/theme", "dark").toString();
 }
 
 void saveSettings(QSettings& s, const Params& p, const AppSettings& a) {
@@ -51,6 +52,7 @@ void saveSettings(QSettings& s, const Params& p, const AppSettings& a) {
     s.setValue("devices/mic", a.micName);
     s.setValue("devices/grabbed", a.grabbedDevices);
     s.setValue("ui/startMinimized", a.startMinimized);
+    s.setValue("ui/theme", a.theme);
 }
 
 } // namespace vfx

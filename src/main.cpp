@@ -6,11 +6,13 @@
 //                         ptt-up, preset <name>, bank <n>, list, show
 #include "app.h"
 #include "ui/main_window.h"
+#include "ui/theme.h"
 
 #include <QApplication>
 #include <QCoreApplication>
 #include <QLocalSocket>
 #include <QMessageBox>
+#include <QSettings>
 #include <QTimer>
 
 #include <cstdio>
@@ -62,6 +64,9 @@ int main(int argc, char** argv) {
     QApplication::setQuitOnLastWindowClosed(false); // keeps running in the tray
 
     if (alreadyRunning()) return 0;
+
+    // Dark by default; "light" or "system" can be picked in the window.
+    vfx::theme::apply(QSettings("voxfx", "voxfx").value("ui/theme", "dark").toString());
 
     vfx::App app;
     QString err;

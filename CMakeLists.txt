@@ -63,6 +63,7 @@ if(VOXFX_BUILD_GUI)
     src/ui/meter_widget.cpp
     src/ui/bind_dialog.cpp
     src/ui/devices_dialog.cpp
+    src/ui/theme.cpp
   )
   target_link_libraries(voxfx PRIVATE voxfx_core Qt6::Widgets)
   target_compile_options(voxfx PRIVATE -Wall -Wextra -Wno-missing-field-initializers)

@@ -13,6 +13,7 @@ struct AppSettings {
     QString micName;            // "" = follow system default
     QStringList grabbedDevices; // evdev device keys grabbed exclusively
     bool startMinimized = false;
+    QString theme = "dark";     // "dark", "light" or "system"
 };
 
 void loadSettings(QSettings& s, Params& p, AppSettings& a);
