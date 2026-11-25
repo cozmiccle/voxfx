@@ -4,11 +4,14 @@
 #include "ui/bind_dialog.h"
 #include "ui/devices_dialog.h"
 #include "ui/meter_widget.h"
+#include "ui/pad_grid.h"
+#include "ui/sound_dialogs.h"
 #include "ui/theme.h"
 #include "dsp/rnnoise_wrap.h"
 
 #include <QAction>
 #include <QApplication>
+#include <QButtonGroup>
 #include <QCheckBox>
 #include <QCloseEvent>
 #include <QComboBox>
@@ -38,7 +41,6 @@
 namespace vfx {
 
 namespace {
-constexpr int kPadCols = 4;
 QString dbText(float db) { return QString("%1 dB").arg(double(db), 0, 'f', 0); }
 } // namespace
 
@@ -52,7 +54,8 @@ MainWindow::MainWindow(App& app, QWidget* parent) : QMainWindow(parent), app_(ap
     split->setStretchFactor(1, 1);
     split->setCollapsible(0, false);
     setCentralWidget(split);
-    resize(1060, 700);
+    resize(1180, 760);
+    setMinimumSize(760, 480);
 
     buildTray();
     refreshMics();
@@ -77,6 +80,7 @@ MainWindow::MainWindow(App& app, QWidget* parent) : QMainWindow(parent), app_(ap
     auto* meterTimer = new QTimer(this);
     connect(meterTimer, &QTimer::timeout, this, &MainWindow::tickMeters);
     meterTimer->start(33);
+    connect(meterTimer, &QTimer::timeout, this, &MainWindow::tickPads);
     auto* statusTimer = new QTimer(this);
     connect(statusTimer, &QTimer::timeout, this, &MainWindow::refreshStatus);
     statusTimer->start(1000);
@@ -329,51 +333,129 @@ void MainWindow::calibrateGate() {
 QWidget* MainWindow::buildBoard() {
     auto* host = new QWidget;
     auto* lay = new QVBoxLayout(host);
+    lay->setContentsMargins(4, 0, 0, 0);
+    lay->setSpacing(8);
 
-    auto* bar = new QHBoxLayout;
-    auto* addFiles = new QPushButton(style()->standardIcon(QStyle::SP_DialogOpenButton), "Add files…");
-    auto* addLink = new QPushButton("Add from link…");
-    addLink->setToolTip("Paste a MyInstants or Voicemod sound page, or a direct .mp3/.ogg/.wav link.");
-    auto* stop = new QPushButton(style()->standardIcon(QStyle::SP_MediaStop), "Stop all");
-    auto* prev = new QToolButton; prev->setArrowType(Qt::LeftArrow);
-    auto* next = new QToolButton; next->setArrowType(Qt::RightArrow);
-    bankLabel_ = new QLabel(QString("Bank %1").arg(app_.bindings().bank() + 1));
-    bankLabel_->setToolTip("Banks let one pad/controller reach more sounds.\n"
-                           "Bindings set to a bank only work while that bank is active.");
-    auto* bindings = new QPushButton("Bindings…");
-    auto* devices = new QPushButton("Input devices…");
-    bar->addWidget(addFiles);
-    bar->addWidget(addLink);
-    bar->addWidget(stop);
-    bar->addSpacing(12);
-    bar->addWidget(prev);
-    bar->addWidget(bankLabel_);
-    bar->addWidget(next);
-    bar->addStretch();
-    bar->addWidget(bindings);
-    bar->addWidget(devices);
-    lay->addLayout(bar);
+    // ---- top bar: add / record / stop · bank · search · layout · size · settings
+    auto* top = new QWidget;
+    top->setObjectName("topBar");
+    top->setAttribute(Qt::WA_StyledBackground);
+    auto* rows = new QVBoxLayout(top);
+    rows->setContentsMargins(8, 6, 8, 6);
+    rows->setSpacing(6);
+    topRow1_ = new QHBoxLayout;
+    topRow2_ = new QHBoxLayout;
+    topRow1_->setSpacing(6);
+    topRow2_->setSpacing(6);
+    rows->addLayout(topRow1_);
+    rows->addLayout(topRow2_);
 
-    search_ = new QLineEdit;
-    search_->setPlaceholderText("Search sounds…");
-    search_->setClearButtonEnabled(true);
-    lay->addWidget(search_);
-
-    padHost_ = new QWidget;
-    padGrid_ = new QGridLayout(padHost_);
-    padGrid_->setSpacing(8);
-    padGrid_->setAlignment(Qt::AlignTop | Qt::AlignLeft);
-    auto* scroll = new QScrollArea;
-    scroll->setWidget(padHost_);
-    scroll->setWidgetResizable(true);
-    lay->addWidget(scroll, 1);
-
-    connect(addFiles, &QPushButton::clicked, this, [this] {
+    auto* add = new QPushButton("＋  Add  ▾");
+    auto* addMenu = new QMenu(add);
+    addMenu->addAction("Audio files…", this, [this] {
         QStringList files = QFileDialog::getOpenFileNames(
             this, "Add sounds", QString(), "Audio (*.mp3 *.ogg *.oga *.opus *.wav *.flac *.m4a);;All files (*)");
         if (!files.isEmpty()) app_.importFiles(files);
     });
-    connect(addLink, &QPushButton::clicked, this, &MainWindow::importLinkDialog);
+    addMenu->addAction("From a link (MyInstants, Voicemod…)…", this, &MainWindow::importLinkDialog);
+    add->setMenu(addMenu);
+
+    record_ = new QPushButton("●  Record");
+    record_->setObjectName("recordButton");
+    record_->setToolTip("Record a new sound from your mic (with your current voice effect).");
+    auto* stop = new QPushButton("■  Stop all");
+    stop->setToolTip("Stop every playing sound");
+
+    auto* prev = new QToolButton; prev->setArrowType(Qt::LeftArrow); prev->setObjectName("barButton");
+    auto* next = new QToolButton; next->setArrowType(Qt::RightArrow); next->setObjectName("barButton");
+    bankLabel_ = new QLabel(QString("Bank %1").arg(app_.bindings().bank() + 1));
+    bankLabel_->setToolTip("Banks let one pad/controller reach more sounds.\n"
+                           "Bindings set to a bank only work while that bank is active.");
+
+    search_ = new QLineEdit;
+    search_->setPlaceholderText("Search sounds…");
+    search_->setClearButtonEnabled(true);
+    search_->setMinimumWidth(120);
+
+    // Layout toggle: Auto | Tiles | List
+    auto* seg = new QWidget;
+    auto* segL = new QHBoxLayout(seg);
+    segL->setContentsMargins(0, 0, 0, 0);
+    segL->setSpacing(0);
+    const std::pair<const char*, const char*> modes[] = {{"auto", "Auto"}, {"tiles", "Tiles"}, {"list", "List"}};
+    auto* group = new QButtonGroup(this);
+    for (int i = 0; i < 3; ++i) {
+        auto* b = new QToolButton;
+        b->setText(modes[i].second);
+        b->setCheckable(true);
+        b->setObjectName("segment");
+        b->setProperty("first", i == 0);
+        b->setProperty("last", i == 2);
+        b->setMinimumWidth(b->fontMetrics().horizontalAdvance(b->text()) + 22);
+        b->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
+        b->setChecked(app_.settings().padLayout == modes[i].first);
+        group->addButton(b, i);
+        segL->addWidget(b);
+    }
+    seg->setToolTip("Pad style: image on top (Tiles), small image beside the name (List),\n"
+                    "or Auto: tiles when pads are big enough.");
+    if (!group->checkedButton()) group->button(0)->setChecked(true);
+
+    padSize_ = new QSlider(Qt::Horizontal);
+    padSize_->setRange(110, 280);
+    padSize_->setValue(app_.settings().padSize);
+    padSize_->setFixedWidth(90);
+    padSize_->setToolTip("Pad size");
+
+    auto* more = new QPushButton("⋯");
+    more->setFixedWidth(40);
+    more->setToolTip("Bindings and input devices");
+    auto* moreMenu = new QMenu(more);
+    moreMenu->addAction("Bindings…", this, [this] { BindingsDialog(app_, this).exec(); });
+    moreMenu->addAction("Input devices…", this, [this] { DevicesDialog(app_, this).exec(); });
+    more->setMenu(moreMenu);
+
+    add_ = add;
+    stop_ = stop;
+    bankBox_ = new QWidget;
+    auto* bankL = new QHBoxLayout(bankBox_);
+    bankL->setContentsMargins(6, 0, 6, 0);
+    bankL->setSpacing(4);
+    bankL->addWidget(prev);
+    bankL->addWidget(bankLabel_);
+    bankL->addWidget(next);
+    viewBox_ = new QWidget;
+    auto* viewL = new QHBoxLayout(viewBox_);
+    viewL->setContentsMargins(0, 0, 0, 0);
+    viewL->setSpacing(6);
+    viewL->addWidget(search_, 1);
+    viewL->addWidget(seg);
+    viewL->addWidget(padSize_);
+    viewL->addWidget(more);
+    lay->addWidget(top);
+    boardHost_ = host;
+    host->installEventFilter(this);
+    arrangeTopBar(host->width());
+
+    // ---- pads
+    grid_ = new PadGrid;
+    grid_->setPadSize(app_.settings().padSize);
+    grid_->setLayoutMode(app_.settings().padLayout == "tiles" ? PadLayout::Tiles
+                         : app_.settings().padLayout == "list" ? PadLayout::List : PadLayout::Auto);
+    auto* scroll = new QScrollArea;
+    scroll->setWidget(grid_);
+    scroll->setWidgetResizable(true);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    lay->addWidget(scroll, 1);
+
+    connect(grid_, &PadGrid::padPressed, this, [this](const QString& id) { app_.pressSound(id); });
+    connect(grid_, &PadGrid::padReleased, this, [this](const QString& id) { app_.releaseSound(id); });
+    connect(grid_, &PadGrid::padContextMenu, this, &MainWindow::padMenu);
+    connect(grid_, &PadGrid::imageDropped, this, [this](const QString& id, const QString& path) {
+        app_.setImage(id, path);
+    });
+
+    connect(record_, &QPushButton::clicked, this, [this] { RecordDialog(app_, this).exec(); });
     connect(stop, &QPushButton::clicked, this, [this] { app_.stopAll(); });
     auto shiftBank = [this](int d) {
         app_.bindings().setBank(app_.bindings().bank() + d);
@@ -381,9 +463,18 @@ QWidget* MainWindow::buildBoard() {
     };
     connect(prev, &QToolButton::clicked, this, [shiftBank] { shiftBank(-1); });
     connect(next, &QToolButton::clicked, this, [shiftBank] { shiftBank(+1); });
-    connect(bindings, &QPushButton::clicked, this, [this] { BindingsDialog(app_, this).exec(); });
-    connect(devices, &QPushButton::clicked, this, [this] { DevicesDialog(app_, this).exec(); });
     connect(search_, &QLineEdit::textChanged, this, &MainWindow::rebuildPads);
+    connect(group, &QButtonGroup::idClicked, this, [this](int i) {
+        static const char* names[] = {"auto", "tiles", "list"};
+        app_.settings().padLayout = names[i];
+        grid_->setLayoutMode(i == 1 ? PadLayout::Tiles : i == 2 ? PadLayout::List : PadLayout::Auto);
+        app_.saveSettings();
+    });
+    connect(padSize_, &QSlider::valueChanged, this, [this](int v) {
+        app_.settings().padSize = v;
+        grid_->setPadSize(v);
+    });
+    connect(padSize_, &QSlider::sliderReleased, this, [this] { app_.saveSettings(); });
     return host;
 }
 
@@ -396,62 +487,47 @@ void MainWindow::importLinkDialog() {
 }
 
 void MainWindow::rebuildPads() {
-    while (QLayoutItem* it = padGrid_->takeAt(0)) {
-        delete it->widget();
-        delete it;
-    }
     const QString filter = search_->text().trimmed();
     const int bank = app_.bindings().bank();
-    int n = 0;
+    QList<PadInfo> pads;
     for (const SoundEntry& e : app_.library().sounds()) {
         if (!filter.isEmpty() && !e.title.contains(filter, Qt::CaseInsensitive)) continue;
-        auto* pad = new QToolButton;
-        pad->setFixedSize(170, 74);
-        pad->setToolButtonStyle(Qt::ToolButtonTextOnly);
-
+        PadInfo p;
+        p.id = e.id;
+        p.title = e.title;
+        p.imagePath = e.image;
         // Show the binding active in this bank (bank-specific first, then global).
-        QString keys;
         for (const Binding& b : app_.bindings().forSound(e.id.toStdString()))
-            if (b.bank == bank || (b.bank == -1 && keys.isEmpty()))
-                keys = QString::fromStdString(modsToString(b.mods) + (b.controlLabel.empty() ? b.control : b.controlLabel));
-        QString state = app_.loadState(e.id);
-        QString title = pad->fontMetrics().elidedText(e.title, Qt::ElideRight, 155);
-        QString mode = e.mode == PlayMode::Hold ? " · hold" : e.mode == PlayMode::ToggleLoop ? " · loop"
-                     : e.mode == PlayMode::Overlap ? " · layer" : "";
-        pad->setText(title + "\n" + (state.isEmpty() ? (keys.isEmpty() ? QString("—") : keys) + mode : state));
-        QString tip = e.title + "\n" + app_.clipInfo(e.id);
-        if (!e.sourceUrl.isEmpty()) tip += "\nFrom: " + e.sourceUrl;
-        if (!state.isEmpty()) tip += "\n" + state;
-        pad->setToolTip(tip);
-        if (!state.isEmpty() && state != "loading…") pad->setStyleSheet("color: " + theme::css(theme::error()) + ";");
-
-        const QString id = e.id;
-        if (e.mode == PlayMode::Hold) {
-            connect(pad, &QToolButton::pressed, this, [this, id] { app_.pressSound(id); });
-            connect(pad, &QToolButton::released, this, [this, id] { app_.releaseSound(id); });
-        } else {
-            connect(pad, &QToolButton::pressed, this, [this, id] { app_.pressSound(id); });
-        }
-        pad->setContextMenuPolicy(Qt::CustomContextMenu);
-        connect(pad, &QToolButton::customContextMenuRequested, this,
-                [this, id, pad](const QPoint& pos) { padMenu(id, pad, pos); });
-        padGrid_->addWidget(pad, n / kPadCols, n % kPadCols);
-        ++n;
+            if (b.bank == bank || (b.bank == -1 && p.keys.isEmpty()))
+                p.keys = QString::fromStdString(modsToString(b.mods) + (b.controlLabel.empty() ? b.control : b.controlLabel))
+                             .replace("KEY_", "");
+        p.mode = e.mode == PlayMode::Hold ? "hold" : e.mode == PlayMode::ToggleLoop ? "loop"
+               : e.mode == PlayMode::Overlap ? "layer" : "";
+        p.problem = app_.loadState(e.id);
+        p.tooltip = e.title + "\n" + app_.clipInfo(e.id);
+        if (!e.sourceUrl.isEmpty()) p.tooltip += "\nFrom: " + e.sourceUrl;
+        if (!p.problem.isEmpty()) p.tooltip += "\n" + p.problem;
+        p.tooltip += "\n\nRight-click to edit, bind or preview. Drop an image here to set its picture.";
+        pads.push_back(p);
     }
-    if (n == 0) {
-        auto* empty = new QLabel(filter.isEmpty()
-            ? "No sounds yet.\n\nDrop audio files here, use “Add files…”, or paste a MyInstants /\n"
-              "Voicemod sound page with “Add from link…”."
-            : "No sounds match.");
-        empty->setAlignment(Qt::AlignCenter);
-        padGrid_->addWidget(empty, 0, 0);
-    }
+    grid_->setEmptyText(filter.isEmpty()
+        ? "No sounds yet.\n\nDrop audio files here, use “＋ Add”, record one with “● Record”,\n"
+          "or paste a MyInstants / Voicemod sound page with “＋ Add → From a link”."
+        : "No sounds match “" + filter + "”.");
+    grid_->setPads(pads);
 }
 
-void MainWindow::padMenu(const QString& id, QToolButton* pad, const QPoint& pos) {
+void MainWindow::tickPads() {
+    grid_->updateProgress([this](const QString& id) { return app_.progress(id); });
+}
+
+void MainWindow::padMenu(const QString& id, const QPoint& globalPos) {
     SoundEntry* e = app_.library().find(id);
     if (!e) return;
     QMenu menu;
+    menu.addAction("Edit name, image, volume…", this, [this, id] { SoundDialog(app_, id, this).exec(); });
+    menu.addAction("Preview (only you hear it)", this, [this, id] { app_.previewSound(id); });
+    menu.addSeparator();
     menu.addAction("Bind key / pad / button…", this, [this, id] { bindSound(id); });
     auto bound = app_.bindings().forSound(id.toStdString());
     if (!bound.empty())
@@ -471,26 +547,13 @@ void MainWindow::padMenu(const QString& id, QToolButton* pad, const QPoint& pos)
         a->setCheckable(true);
         a->setChecked(e->mode == m);
     }
-    menu.addAction(QString("Volume trim (%1 dB)…").arg(double(e->trimDb), 0, 'f', 0), this, [this, id] {
-        SoundEntry* s = app_.library().find(id);
-        if (!s) return;
-        bool ok = false;
-        int v = QInputDialog::getInt(this, "Volume trim", "Trim for \"" + s->title + "\" (dB):",
-                                     int(s->trimDb), -24, 12, 1, &ok);
-        if (ok) app_.setTrim(id, float(v));
-    });
-    menu.addAction("Rename…", this, [this, id] {
-        SoundEntry* s = app_.library().find(id);
-        if (!s) return;
-        bool ok = false;
-        QString t = QInputDialog::getText(this, "Rename", "Name:", QLineEdit::Normal, s->title, &ok);
-        if (ok && !t.trimmed().isEmpty()) { s->title = t.trimmed(); app_.saveLibrary(); rebuildPads(); }
-    });
+    if (!e->image.isEmpty())
+        menu.addAction("Remove image", this, [this, id] { app_.setImage(id, QString()); });
     if (!e->sourceUrl.isEmpty())
         menu.addAction("Open source page", this, [url = e->sourceUrl] { QDesktopServices::openUrl(QUrl(url)); });
     menu.addSeparator();
     menu.addAction("Remove sound", this, [this, id] { app_.removeSound(id); });
-    menu.exec(pad->mapToGlobal(pos));
+    menu.exec(globalPos);
 }
 
 void MainWindow::bindSound(const QString& id) {
@@ -502,6 +565,36 @@ void MainWindow::bindSound(const QString& id) {
         app_.saveLibrary();
         rebuildPads();
     }
+}
+
+// Wide: one row. Narrow: view controls move to a second row. Very narrow: the
+// main buttons drop their labels.
+void MainWindow::arrangeTopBar(int width) {
+    const bool twoRows = width < 800;
+    const bool iconsOnly = width < 520;
+    if (twoRows != topTwoRows_ || topRow1_->count() == 0) {
+        topTwoRows_ = twoRows;
+        for (QLayout* l : {static_cast<QLayout*>(topRow1_), static_cast<QLayout*>(topRow2_)})
+            while (QLayoutItem* it = l->takeAt(0)) delete it; // widgets stay, items go
+        topRow1_->addWidget(add_);
+        topRow1_->addWidget(record_);
+        topRow1_->addWidget(stop_);
+        topRow1_->addWidget(bankBox_);
+        if (twoRows) {
+            topRow1_->addStretch();
+            topRow2_->addWidget(viewBox_, 1);
+        } else {
+            topRow1_->addWidget(viewBox_, 1);
+        }
+    }
+    add_->setText(iconsOnly ? "＋ ▾" : "＋  Add  ▾");
+    record_->setText(iconsOnly ? "●" : "●  Record");
+    stop_->setText(iconsOnly ? "■" : "■  Stop all");
+}
+
+bool MainWindow::eventFilter(QObject* o, QEvent* e) {
+    if (o == boardHost_ && e->type() == QEvent::Resize) arrangeTopBar(boardHost_->width());
+    return QMainWindow::eventFilter(o, e);
 }
 
 // ============================================================================ window / tray

@@ -91,6 +91,10 @@ struct Engine::Impl {
     Meters meters;
     ClipBank bank;
     MpmcQueue<Command> queue{1024};
+    SpscRing<float> capture{1u << 19}; // ~10 s at 48 kHz of slack for the writer
+    std::atomic<bool> capturing{false};
+    std::atomic<uint64_t> captureDropped{0};
+    std::atomic<float> playPos[kMaxClipSlots];
 
     // ---- PipeWire objects (touched only with the thread loop locked) -------
     pw_thread_loop* loop = nullptr;
@@ -122,7 +126,11 @@ struct Engine::Impl {
     VoicePool pool{bank};
     float rate = 0;
     float muteGain = 1.f, duckGain = 1.f, noiseMs = 0.f;
-    float mic[kChunk], sfxL[kChunk], sfxR[kChunk];
+    float mic[kChunk], sfxL[kChunk], sfxR[kChunk], pvL[kChunk], pvR[kChunk];
+    int shownSlots[kMaxVoices];
+    int nShown = 0;
+
+    Impl() { for (auto& p : playPos) p.store(-1.f, std::memory_order_relaxed); }
 
     // =====================================================================
     // RT process callback
@@ -179,10 +187,16 @@ struct Engine::Impl {
                 mic[i] = x * micGain;
             }
             chain.process(mic, m, cs);
+            if (capturing.load(std::memory_order_relaxed)) {
+                size_t w = capture.write(mic, size_t(m));
+                if (w < size_t(m)) captureDropped.fetch_add(m - w, std::memory_order_relaxed);
+            }
 
             std::fill(sfxL, sfxL + m, 0.f);
             std::fill(sfxR, sfxR + m, 0.f);
-            pool.render(sfxL, sfxR, m);
+            std::fill(pvL, pvL + m, 0.f);
+            std::fill(pvR, pvR + m, 0.f);
+            pool.render(sfxL, sfxR, pvL, pvR, m);
 
             for (int i = 0; i < m; ++i) {
                 float sl = sfxL[i] * sfxGain, sr = sfxR[i] * sfxGain;
@@ -201,8 +215,10 @@ struct Engine::Impl {
                 pkOut = std::max(pkOut, std::max(std::fabs(L), std::fabs(R)));
                 if (vl) vl[off + i] = L;
                 if (vr) vr[off + i] = R;
-                if (ml) ml[off + i] = monOn ? (monMic ? L : sl) * monGain : 0.f;
-                if (mr) mr[off + i] = monOn ? (monMic ? R : sr) * monGain : 0.f;
+                // Monitor = optional "hear it myself" mix + previews (always audible).
+                float pl = pvL[i] * sfxGain, pr = pvR[i] * sfxGain;
+                if (ml) ml[off + i] = std::clamp((monOn ? (monMic ? L : sl) * monGain : 0.f) + pl, -1.f, 1.f);
+                if (mr) mr[off + i] = std::clamp((monOn ? (monMic ? R : sr) * monGain : 0.f) + pr, -1.f, 1.f);
             }
         }
 
@@ -216,7 +232,30 @@ struct Engine::Impl {
         meters.noiseFloorDb.store(10.f * std::log10(std::max(noiseMs, 1e-12f)), std::memory_order_relaxed);
         meters.gateOpen.store(chain.gateOpen(), std::memory_order_relaxed);
         meters.activeVoices.store(uint32_t(pool.active()), std::memory_order_relaxed);
+        publishProgress();
         meters.cycles.fetch_add(1, std::memory_order_release);
+    }
+
+    // Per-slot playback position for the pads. Only touches slots that changed.
+    void publishProgress() {
+        int now[kMaxVoices];
+        float prog[kMaxVoices];
+        int k = 0;
+        pool.forEachPlaying([&](int slot, float p) {
+            for (int j = 0; j < k; ++j)
+                if (now[j] == slot) { prog[j] = std::max(prog[j], p); return; }
+            if (k < kMaxVoices && slot >= 0 && slot < kMaxClipSlots) { now[k] = slot; prog[k++] = p; }
+        });
+        for (int i = 0; i < nShown; ++i) {
+            bool still = false;
+            for (int j = 0; j < k; ++j) still |= now[j] == shownSlots[i];
+            if (!still) playPos[shownSlots[i]].store(-1.f, std::memory_order_relaxed);
+        }
+        for (int j = 0; j < k; ++j) {
+            playPos[now[j]].store(std::min(prog[j], 1.f), std::memory_order_relaxed);
+            shownSlots[j] = now[j];
+        }
+        nShown = k;
     }
 
     void prepare(float r) {
@@ -293,7 +332,9 @@ struct Engine::Impl {
                 want.insert({pr, ins[1].first});
             };
             connectPair("vmic_FL", "vmic_FR", findNode(kVirtualMicName));
-            if (monitorWanted && !defaultSink.empty())
+            // Always linked: previews must reach the headphones even with the
+            // "hear it myself" monitor off (the engine sends silence then).
+            if (!defaultSink.empty())
                 connectPair("mon_FL", "mon_FR", findNode(defaultSink));
         }
 
@@ -565,10 +606,17 @@ EngineStatus Engine::status() {
     s.virtualMicReady = d->findNode(kVirtualMicName) != SPA_ID_INVALID;
     s.engineReady = d->engineNode() != SPA_ID_INVALID;
     s.micName = d->linkedMic;
-    s.monitorSink = d->monitorWanted ? d->defaultSink : std::string{};
+    s.monitorSink = d->defaultSink;
     s.links = int(d->links.size());
     pw_thread_loop_unlock(d->loop);
     return s;
+}
+
+SpscRing<float>& Engine::captureRing() { return d->capture; }
+void Engine::setCapture(bool on) { d->capturing.store(on, std::memory_order_release); }
+uint64_t Engine::captureDropped() const { return d->captureDropped.load(std::memory_order_relaxed); }
+float Engine::slotProgress(int slot) const {
+    return (slot >= 0 && slot < kMaxClipSlots) ? d->playPos[slot].load(std::memory_order_relaxed) : -1.f;
 }
 
 void Engine::setTestTone(bool on) {

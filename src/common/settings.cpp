@@ -30,6 +30,8 @@ void loadSettings(QSettings& s, Params& p, AppSettings& a) {
     a.grabbedDevices = s.value("devices/grabbed").toStringList();
     a.startMinimized = s.value("ui/startMinimized", false).toBool();
     a.theme = s.value("ui/theme", "dark").toString();
+    a.padLayout = s.value("ui/padLayout", "auto").toString();
+    a.padSize = s.value("ui/padSize", 170).toInt();
 }
 
 void saveSettings(QSettings& s, const Params& p, const AppSettings& a) {
@@ -53,6 +55,8 @@ void saveSettings(QSettings& s, const Params& p, const AppSettings& a) {
     s.setValue("devices/grabbed", a.grabbedDevices);
     s.setValue("ui/startMinimized", a.startMinimized);
     s.setValue("ui/theme", a.theme);
+    s.setValue("ui/padLayout", a.padLayout);
+    s.setValue("ui/padSize", a.padSize);
 }
 
 } // namespace vfx

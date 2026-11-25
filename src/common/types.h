@@ -37,6 +37,7 @@ struct Command {
     PlayMode mode = PlayMode::Restart;
     int16_t slot = -1;
     float gain = 1.0f; // linear, e.g. MIDI velocity scaling
+    bool preview = false; // play only to the monitor (your headphones)
 };
 
 // Written by the UI thread, read by the RT thread every block. Relaxed atomics are

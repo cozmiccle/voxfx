@@ -16,6 +16,7 @@ struct SoundEntry {
     QString file;      // absolute path
     QString source;    // "local", "myinstants", "voicemod", "web"
     QString sourceUrl;
+    QString image;     // absolute path to a small PNG in images/, or empty
     float trimDb = 0.f;
     PlayMode mode = PlayMode::Restart;
 };
@@ -32,6 +33,7 @@ public:
 
     QString dataDir() const { return dir_; }
     QString soundsDir() const;
+    QString imagesDir() const;
     const std::vector<SoundEntry>& sounds() const { return sounds_; }
     SoundEntry* find(const QString& id);
     const SoundEntry* findByTitle(const QString& title) const;

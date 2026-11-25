@@ -19,7 +19,7 @@ void VoicePool::stopSlot(int slot) {
         if (v.clip && v.slot == slot && v.fadeOut < 0) v.fadeOut = kFade;
 }
 
-void VoicePool::startVoice(int slot, float gain, bool loop, bool hold) {
+void VoicePool::startVoice(int slot, float gain, bool loop, bool hold, bool preview) {
     const Clip* c = bank_.get(slot);
     if (!c || c->frames() == 0) return;
     // Pick a free voice, otherwise steal the one closest to its end.
@@ -32,7 +32,7 @@ void VoicePool::startVoice(int slot, float gain, bool loop, bool hold) {
             if (progress > best) { best = progress; pick = &v; }
         }
     }
-    *pick = Voice{c, slot, 0.0, gain, loop, hold, -1};
+    *pick = Voice{c, slot, 0.0, gain, loop, hold, preview, -1};
 }
 
 void VoicePool::apply(const Command& c) {
@@ -41,18 +41,18 @@ void VoicePool::apply(const Command& c) {
             switch (c.mode) {
                 case PlayMode::Restart:
                     stopSlot(c.slot);
-                    startVoice(c.slot, c.gain, false, false);
+                    startVoice(c.slot, c.gain, false, false, c.preview);
                     break;
                 case PlayMode::Overlap:
-                    startVoice(c.slot, c.gain, false, false);
+                    startVoice(c.slot, c.gain, false, false, c.preview);
                     break;
                 case PlayMode::Hold:
                     stopSlot(c.slot);
-                    startVoice(c.slot, c.gain, false, true);
+                    startVoice(c.slot, c.gain, false, true, c.preview);
                     break;
                 case PlayMode::ToggleLoop:
                     if (isPlaying(c.slot)) stopSlot(c.slot);
-                    else startVoice(c.slot, c.gain, true, false);
+                    else startVoice(c.slot, c.gain, true, false, c.preview);
                     break;
             }
             break;
@@ -69,7 +69,7 @@ void VoicePool::apply(const Command& c) {
     }
 }
 
-int VoicePool::render(float* L, float* R, int n) {
+int VoicePool::render(float* L, float* R, float* pL, float* pR, int n) {
     int count = 0;
     for (auto& v : voices_) {
         if (!v.clip) continue;
@@ -79,6 +79,8 @@ int VoicePool::render(float* L, float* R, int n) {
         const Clip& c = *v.clip;
         const size_t frames = c.frames();
         const float g = v.gain * c.normGain * c.trimGain.load(std::memory_order_relaxed);
+        float* outL = v.preview ? pL : L;
+        float* outR = v.preview ? pR : R;
         for (int i = 0; i < n; ++i) {
             size_t i0 = size_t(v.pos);
             if (i0 >= frames) {
@@ -94,8 +96,7 @@ int VoicePool::render(float* L, float* R, int n) {
             }
             float l = c.left[i0] + (c.left[i1] - c.left[i0]) * f;
             float r = c.right[i0] + (c.right[i1] - c.right[i0]) * f;
-            L[i] += l * g * fade;
-            R[i] += r * g * fade;
+            if (outL) { outL[i] += l * g * fade; outR[i] += r * g * fade; }
             v.pos += step_;
         }
         if (v.clip) ++count;

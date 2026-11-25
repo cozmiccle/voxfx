@@ -6,6 +6,7 @@
 //                         ptt-up, preset <name>, bank <n>, list, show
 #include "app.h"
 #include "ui/main_window.h"
+#include "ui/sound_dialogs.h"
 #include "ui/theme.h"
 
 #include <QApplication>
@@ -80,6 +81,30 @@ int main(int argc, char** argv) {
     if (!app.settings().startMinimized || !QSystemTrayIcon::isSystemTrayAvailable()) w.show();
     QObject::connect(&qapp, &QApplication::aboutToQuit, &app, &vfx::App::shutdown);
 
+    // Dev aid: with VOXFX_DEV set, `voxfx ctl dev-screenshot <file>` saves the window;
+    // "record:<file>" or "edit:<sound id>:<file>" capture those dialogs instead.
+    QObject::connect(&app, &vfx::App::devScreenshotRequested, &w, [&w, &app](const QString& arg) {
+        QDialog* d = nullptr;
+        QString path = arg;
+        if (arg.startsWith("record:")) {
+            d = new vfx::RecordDialog(app, &w);
+            path = arg.section(':', 1);
+        } else if (arg.startsWith("edit:")) {
+            d = new vfx::SoundDialog(app, arg.section(':', 1, 1), &w);
+            path = arg.section(':', 2);
+        }
+        if (arg.startsWith("size:")) { // size:<w>x<h>:<file>
+            QStringList wh = arg.section(':', 1, 1).split('x');
+            w.resize(wh.value(0).toInt(), wh.value(1).toInt());
+            path = arg.section(':', 2);
+            QTimer::singleShot(300, &w, [&w, path] { w.grab().save(path); });
+            return;
+        }
+        if (!d) { w.show(); w.grab().save(path); return; }
+        d->setAttribute(Qt::WA_DeleteOnClose);
+        d->show();
+        QTimer::singleShot(400, d, [d, path] { d->grab().save(path); d->close(); });
+    });
     // Dev aid for headless runs/CI: VOXFX_DEV_SCREENSHOT=out.png saves the window
     // after a short delay; VOXFX_DEV_QUIT_MS=<ms> quits after that long.
     if (QString shot = qEnvironmentVariable("VOXFX_DEV_SCREENSHOT"); !shot.isEmpty())

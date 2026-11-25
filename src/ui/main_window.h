@@ -7,6 +7,7 @@
 class QCheckBox;
 class QComboBox;
 class QGridLayout;
+class QHBoxLayout;
 class QGroupBox;
 class QLabel;
 class QLineEdit;
@@ -18,6 +19,7 @@ namespace vfx {
 
 class App;
 class MeterWidget;
+class PadGrid;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -28,6 +30,7 @@ protected:
     void closeEvent(QCloseEvent* e) override;
     void dragEnterEvent(QDragEnterEvent* e) override;
     void dropEvent(QDropEvent* e) override;
+    bool eventFilter(QObject* o, QEvent* e) override;
 
 private:
     QWidget* buildControls();
@@ -38,7 +41,9 @@ private:
     void refreshStatus();
     void syncFromParams();
     void tickMeters();
-    void padMenu(const QString& id, QToolButton* pad, const QPoint& pos);
+    void padMenu(const QString& id, const QPoint& globalPos);
+    void tickPads();
+    void arrangeTopBar(int width);
     void bindSound(const QString& id);
     void calibrateGate();
     void importLinkDialog();
@@ -67,8 +72,17 @@ private:
 
     QLineEdit* search_;
     QLabel* bankLabel_;
-    QWidget* padHost_;
-    QGridLayout* padGrid_;
+    PadGrid* grid_;
+    QSlider* padSize_;
+    QPushButton* record_;
+    QPushButton* add_ = nullptr;
+    QPushButton* stop_ = nullptr;
+    QWidget* bankBox_ = nullptr;
+    QWidget* viewBox_ = nullptr;
+    QWidget* boardHost_ = nullptr;
+    QHBoxLayout* topRow1_ = nullptr;
+    QHBoxLayout* topRow2_ = nullptr;
+    bool topTwoRows_ = false;
 
     QSystemTrayIcon* tray_ = nullptr;
     QAction* trayMute_ = nullptr;

@@ -28,9 +28,11 @@ PlayMode playModeFromName(const QString& s) {
 
 Library::Library(QString dataDir) : dir_(std::move(dataDir)) {
     QDir().mkpath(soundsDir());
+    QDir().mkpath(imagesDir());
 }
 
 QString Library::soundsDir() const { return QDir(dir_).filePath("sounds"); }
+QString Library::imagesDir() const { return QDir(dir_).filePath("images"); }
 
 bool Library::load(QString* error) {
     QFile f(QDir(dir_).filePath("library.json"));
@@ -50,6 +52,8 @@ bool Library::load(QString* error) {
         if (QDir::isRelativePath(e.file)) e.file = QDir(soundsDir()).filePath(e.file);
         e.source = o["source"].toString("local");
         e.sourceUrl = o["sourceUrl"].toString();
+        e.image = o["image"].toString();
+        if (!e.image.isEmpty() && QDir::isRelativePath(e.image)) e.image = QDir(imagesDir()).filePath(e.image);
         e.trimDb = float(o["trimDb"].toDouble(0));
         e.mode = playModeFromName(o["mode"].toString());
         if (!e.id.isEmpty()) sounds_.push_back(e);
@@ -69,6 +73,10 @@ bool Library::save(QString* error) const {
         o["file"] = rel.startsWith("..") ? e.file : rel;
         o["source"] = e.source;
         o["sourceUrl"] = e.sourceUrl;
+        if (!e.image.isEmpty()) {
+            QString ri = QDir(imagesDir()).relativeFilePath(e.image);
+            o["image"] = ri.startsWith("..") ? e.image : ri;
+        }
         o["trimDb"] = double(e.trimDb);
         o["mode"] = playModeName(e.mode);
         arr.append(o);
@@ -105,6 +113,7 @@ void Library::remove(const QString& id, bool deleteFile) {
         if (it->id != id) continue;
         // Only delete files we own (inside our sounds dir).
         if (deleteFile && it->file.startsWith(soundsDir())) QFile::remove(it->file);
+        if (!it->image.isEmpty() && it->image.startsWith(imagesDir())) QFile::remove(it->image);
         sounds_.erase(it);
         return;
     }

@@ -14,6 +14,8 @@ struct AppSettings {
     QStringList grabbedDevices; // evdev device keys grabbed exclusively
     bool startMinimized = false;
     QString theme = "dark";     // "dark", "light" or "system"
+    QString padLayout = "auto"; // "auto", "tiles" or "list"
+    int padSize = 170;          // target pad width in px
 };
 
 void loadSettings(QSettings& s, Params& p, AppSettings& a);

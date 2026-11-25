@@ -5,6 +5,9 @@
 #include <QFileInfo>
 #include <QLocalSocket>
 #include <QStandardPaths>
+#include <QDateTime>
+#include <QImage>
+#include <QImageReader>
 #include <QThreadPool>
 
 namespace vfx {
@@ -22,8 +25,10 @@ App::App(QObject* parent)
       evdev_([this](const InputEvent& e) { bindings_.handle(e); }),
       midi_([this](const InputEvent& e) { bindings_.handle(e); }),
       importer_(QDir(dataDir()).filePath("sounds")),
-      qsettings_("voxfx", "voxfx") {
-    for (int i = kMaxClipSlots - 1; i >= 0; --i) freeSlots_.push_back(i);
+      qsettings_("voxfx", "voxfx"),
+      recorder_(engine_) {
+    // The last slot is reserved for previewing files that aren't in the library.
+    for (int i = kMaxClipSlots - 2; i >= 0; --i) freeSlots_.push_back(i);
     bindings_.setDispatcher([this](const Binding& b, const InputEvent& e) { dispatch(b, e); });
 
     connect(&reaper_, &QTimer::timeout, this, &App::reap);
@@ -92,6 +97,10 @@ void App::shutdown() {
     saveSettings();
     saveLibrary();
     ctl_.close();
+    if (recorder_.active()) {
+        recorder_.stop();
+        QFile::remove(recPath_); // unsaved take
+    }
     midi_.stop();
     evdev_.stop();
     QThreadPool::globalInstance()->waitForDone(5000);
@@ -189,7 +198,7 @@ void App::reap() {
     uint64_t now = engine_.meters().cycles.load(std::memory_order_acquire);
     for (auto it = graveyard_.begin(); it != graveyard_.end();) {
         if (now >= it->freeAfter || !engineRunning_) {
-            freeSlots_.push_back(it->slot);
+            if (it->returnSlot) freeSlots_.push_back(it->slot);
             it = graveyard_.erase(it);
         } else {
             ++it;
@@ -260,6 +269,148 @@ QString App::clipInfo(const QString& id) const {
         .arg(double(c.frames()) / kClipRate, 0, 'f', 1)
         .arg(c.loudnessLufs, 0, 'f', 1)
         .arg(20.0 * std::log10(std::max(1e-6f, c.normGain)), 0, 'f', 1);
+}
+
+void App::previewSound(const QString& id) {
+    std::lock_guard lk(slotMx_);
+    auto it = slotById_.find(id.toStdString());
+    if (it == slotById_.end()) return;
+    Command c{Command::Play, PlayMode::Restart, int16_t(it->second.slot), 1.f};
+    c.preview = true;
+    engine_.send(c);
+}
+
+void App::rename(const QString& id, const QString& title) {
+    SoundEntry* e = library_.find(id);
+    if (!e || title.trimmed().isEmpty()) return;
+    e->title = title.trimmed();
+    saveLibrary();
+    emit soundsChanged();
+}
+
+void App::setImage(const QString& id, const QString& imagePath) {
+    SoundEntry* e = library_.find(id);
+    if (!e) return;
+    auto replace = [this, id](const QString& newPath) {
+        SoundEntry* s = library_.find(id);
+        if (!s) { QFile::remove(newPath); return; }
+        if (!s->image.isEmpty() && s->image.startsWith(library_.imagesDir())) QFile::remove(s->image);
+        s->image = newPath;
+        saveLibrary();
+        emit soundsChanged();
+    };
+    if (imagePath.isEmpty()) { replace(QString()); return; }
+    // Decode, centre-crop to a square and scale to 256 px off the GUI thread, so
+    // a huge photo never stalls the window.
+    const QString dest = QDir(library_.imagesDir())
+        .filePath(QString("%1-%2.png").arg(id).arg(QDateTime::currentMSecsSinceEpoch()));
+    QThreadPool::globalInstance()->start([this, imagePath, dest, replace] {
+        QImageReader r(imagePath);
+        r.setAutoTransform(true);
+        QSize sz = r.size();
+        if (sz.isValid() && std::max(sz.width(), sz.height()) > 2048)
+            r.setScaledSize(sz.scaled(2048, 2048, Qt::KeepAspectRatio));
+        QImage img = r.read();
+        bool ok = !img.isNull();
+        if (ok) {
+            int side = std::min(img.width(), img.height());
+            img = img.copy((img.width() - side) / 2, (img.height() - side) / 2, side, side)
+                      .scaled(256, 256, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+            ok = img.save(dest, "PNG");
+        }
+        QString err = ok ? QString() : "Couldn't use that image: " + r.errorString();
+        QMetaObject::invokeMethod(this, [this, ok, dest, err, replace] {
+            if (ok) replace(dest);
+            else emit message(err);
+        }, Qt::QueuedConnection);
+    });
+}
+
+float App::progress(const QString& id) const {
+    auto it = clips_.find(id);
+    if (it == clips_.end() || it->second.slot < 0) return -1.f;
+    return engine_.slotProgress(it->second.slot);
+}
+
+// ============================================================================ recording
+
+bool App::startRecording(QString* error) {
+    if (recorder_.active()) return true;
+    recPath_ = QDir(library_.soundsDir())
+        .filePath("rec-" + QDateTime::currentDateTime().toString("yyyyMMdd-HHmmss") + ".wav");
+    std::string err;
+    if (!recorder_.start(recPath_.toStdString(), &err)) {
+        if (error) *error = QString::fromStdString(err);
+        return false;
+    }
+    emit recordingChanged(true);
+    return true;
+}
+
+QString App::stopRecording(QString* error, bool trim) {
+    if (!recorder_.active()) { if (error) *error = "not recording"; return {}; }
+    RecordingInfo info = recorder_.stop();
+    emit recordingChanged(false);
+    if (!info.ok) {
+        QFile::remove(recPath_);
+        if (error) *error = QString::fromStdString(info.error);
+        return {};
+    }
+    if (info.dropped > 0) emit message(QString("Recording lost %1 ms of audio (system busy)").arg(info.dropped * 1000 / std::max(1u, engine_.meters().sampleRate.load())));
+    if (trim) {
+        std::string err;
+        if (!trimSilence(recPath_.toStdString(), -45.f, 80.0, &err) && err == "recording is silent") {
+            QFile::remove(recPath_);
+            if (error) *error = "The recording is silent. Check the mic and the Mic meter, then try again.";
+            return {};
+        }
+    }
+    return recPath_;
+}
+
+void App::previewFile(const QString& path) {
+    auto play = [this] {
+        Command c{Command::Play, PlayMode::Restart, int16_t(kPreviewSlot), 1.f};
+        c.preview = true;
+        engine_.send(c);
+    };
+    if (path == previewPath_ && previewClip_) { play(); return; }
+    // Retire the previous preview clip (slot stays reserved).
+    if (previewClip_) {
+        engine_.bank().entries[kPreviewSlot].store(nullptr, std::memory_order_release);
+        graveyard_.push_back({std::move(previewClip_), kPreviewSlot,
+                              engine_.meters().cycles.load() + 2, false});
+    }
+    previewPath_ = path;
+    QThreadPool::globalInstance()->start([this, path, play] {
+        auto* clip = new Clip;
+        LoadResult r = loadClip(path.toStdString(), *clip);
+        QMetaObject::invokeMethod(this, [this, path, clip, ok = r.ok, play] {
+            std::unique_ptr<Clip> c(clip);
+            if (!ok || path != previewPath_) return; // failed or superseded
+            previewClip_ = std::move(c);
+            engine_.bank().entries[kPreviewSlot].store(previewClip_.get(), std::memory_order_release);
+            play();
+        }, Qt::QueuedConnection);
+    });
+}
+
+void App::discardRecording(const QString& wavPath) {
+    if (wavPath == previewPath_) {
+        engine_.bank().entries[kPreviewSlot].store(nullptr, std::memory_order_release);
+        if (previewClip_)
+            graveyard_.push_back({std::move(previewClip_), kPreviewSlot,
+                                  engine_.meters().cycles.load() + 2, false});
+        previewPath_.clear();
+    }
+    QFile::remove(wavPath);
+}
+
+QString App::addRecording(const QString& wavPath, const QString& title, const QString& imagePath) {
+    QString id = addFileToLibrary(wavPath, title.trimmed().isEmpty() ? QString("Recording") : title.trimmed(),
+                                  "recorded", QString(), false);
+    if (!imagePath.isEmpty()) setImage(id, imagePath);
+    return id;
 }
 
 // ============================================================================ input
@@ -337,6 +488,19 @@ void App::handleCtl(const QString& line, QString& reply) {
         QStringList names;
         for (auto& e : library_.sounds()) names << e.title;
         reply = names.join("\n");
+    } else if (cmd == "record-start") {
+        QString err;
+        if (!startRecording(&err)) reply = "error: " + err;
+    } else if (cmd == "record-stop") {
+        // record-stop [name]: saves the take into the library.
+        QString err;
+        QString path = stopRecording(&err);
+        if (path.isEmpty()) { reply = "error: " + err; return; }
+        QString title = arg.isEmpty() ? QString("Recording %1").arg(library_.sounds().size() + 1) : arg;
+        addRecording(path, title, QString());
+        reply = "ok " + title;
+    } else if (cmd == "dev-screenshot" && qEnvironmentVariableIsSet("VOXFX_DEV")) {
+        emit devScreenshotRequested(arg);
     } else if (cmd == "show") {
         emit showWindowRequested();
     } else {

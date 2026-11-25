@@ -7,6 +7,7 @@
 #include "input/binding_manager.h"
 #include "input/evdev_backend.h"
 #include "input/midi_backend.h"
+#include "sfx/recorder.h"
 #include "sources/library.h"
 #include "sources/link_importer.h"
 
@@ -49,6 +50,22 @@ public:
     void pressSound(const QString& id, float gain = 1.f);
     void releaseSound(const QString& id);
     void stopAll();
+    void previewSound(const QString& id);       // plays to your headphones only
+    void rename(const QString& id, const QString& title);
+    // Copies + scales the image (in the background) into the library. "" clears it.
+    void setImage(const QString& id, const QString& imagePath);
+    float progress(const QString& id) const;    // 0..1 while playing, else -1
+
+    // ---- recording ------------------------------------------------------------
+    bool startRecording(QString* error);
+    // Stops and trims; returns the WAV path ("" on failure, error set).
+    QString stopRecording(QString* error, bool trim = true);
+    bool isRecording() const { return recorder_.active(); }
+    double recordingSeconds() const { return recorder_.seconds(); }
+    bool recordingHitLimit() const { return recorder_.hitLimit(); }
+    void previewFile(const QString& path);      // e.g. a take before saving it
+    QString addRecording(const QString& wavPath, const QString& title, const QString& imagePath);
+    void discardRecording(const QString& wavPath);
     // "" when loaded fine, otherwise the load error (or "loading…").
     QString loadState(const QString& id) const;
     QString clipInfo(const QString& id) const;
@@ -66,6 +83,8 @@ signals:
     void bankChanged(int bank);
     void message(const QString& text);
     void showWindowRequested();
+    void recordingChanged(bool recording);
+    void devScreenshotRequested(const QString& path); // VOXFX_DEV only
 
 private:
     struct Loaded {
@@ -96,7 +115,7 @@ private:
 
     std::map<QString, Loaded> clips_;          // GUI thread only
     std::vector<int> freeSlots_;
-    struct Grave { std::unique_ptr<Clip> clip; int slot; uint64_t freeAfter; };
+    struct Grave { std::unique_ptr<Clip> clip; int slot; uint64_t freeAfter; bool returnSlot = true; };
     std::vector<Grave> graveyard_;
     QTimer reaper_;
 
@@ -106,6 +125,12 @@ private:
     std::map<std::string, SlotInfo> slotById_;
 
     QLocalServer ctl_;
+    Recorder recorder_;
+    // Reserved slot for previewing files that aren't in the library yet.
+    static constexpr int kPreviewSlot = kMaxClipSlots - 1;
+    std::unique_ptr<Clip> previewClip_;
+    QString previewPath_;
+    QString recPath_;
 };
 
 } // namespace vfx

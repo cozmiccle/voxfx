@@ -9,6 +9,7 @@
 // they're predictable. Registry/metadata events keep them up to date when
 // devices are plugged in or the default devices change.
 #include "common/mpmc_queue.h"
+#include "common/spsc_ring.h"
 #include "common/types.h"
 #include "sfx/clip.h"
 
@@ -64,6 +65,18 @@ public:
     // routing without speaking (also used by the headless smoke test).
     void setTestTone(bool on);
     EngineStatus status();
+
+    // ---- recording -----------------------------------------------------------
+    // While capture is on, the processed voice (after cleanup + voice effect,
+    // before mute/ducking, without soundboard sounds) is written to this ring as
+    // mono floats at the graph rate (meters().sampleRate). One reader only.
+    SpscRing<float>& captureRing();
+    void setCapture(bool on);
+    uint64_t captureDropped() const; // samples lost because the reader fell behind
+
+    // ---- live feedback ---------------------------------------------------------
+    // Playback position 0..1 of the clip in `slot`, or -1 when it isn't playing.
+    float slotProgress(int slot) const;
 
     // Called on the PipeWire thread whenever devices or links change.
     void setChangedCallback(std::function<void()> cb);

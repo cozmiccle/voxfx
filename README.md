@@ -19,6 +19,15 @@ effected voice mixed with any sound clips you trigger.
   - per-sound trim
   - your voice ducks automatically while sounds play
   - play modes: once, layer, hold-to-play, loop
+- **Record new sounds:** **● Record** captures your voice as others hear it (cleanup + voice
+  effect, no soundboard), trims silence, and lets you preview it before saving it with a name
+  and image
+- **Pads with pictures:** give any sound an image (Edit…, or drop an image file onto its pad).
+  Pads show the image on top (**Tiles**) or beside the name (**List**); **Auto** picks by pad
+  size, and the size slider resizes them
+- **Live feedback:** pads glow and show a progress bar while playing; meters for mic, voice,
+  sounds and output
+- **Preview:** right-click → Preview plays a sound in your headphones only
 - **Hear it yourself:** optional monitor to your headphones (sounds only, or sounds + voice)
 - **Triggers:** USB macro pads, spare keyboards/numpads, mouse side buttons, **gamepads** and
   **MIDI pads**
@@ -62,7 +71,8 @@ sudo cmake --install build
 2. In Discord (or OBS, or a game), set the input device to **voxfx Mic**. In Discord, turn off
    its own noise suppression/echo cancellation if your voice sounds processed twice.
 3. Stay quiet and click **Calibrate gate**.
-4. Add sounds, then right-click a pad → **Bind key / pad / button…**.
+4. Add sounds (＋ Add, drag and drop, or ● Record), then right-click a pad →
+   **Bind key / pad / button…**. Right-click → **Edit…** sets the name, image, volume and play mode.
 
 ### Macro pads, keyboards and gamepads need input permission
 
@@ -100,13 +110,14 @@ voxfx ctl stop
 ```
 
 The full command list is `play <name>`, `stop`, `mute`, `unmute`, `toggle-mute`, `ptt-down`,
-`ptt-up`, `preset <name>`, `bank <n>`, `list`, and `show`.
+`ptt-up`, `preset <name>`, `bank <n>`, `record-start`, `record-stop [name]`, `list`, and `show`.
 
 ## Where things are stored
 
 | What | Where |
 |---|---|
 | Sounds + bindings | `~/.local/share/voxfx/library.json` and `~/.local/share/voxfx/sounds/` |
+| Pad images (256 px PNGs) | `~/.local/share/voxfx/images/` |
 | Settings | `~/.config/voxfx/voxfx.conf` |
 
 ## About "Add from link"
@@ -126,10 +137,11 @@ Code layout:
 ```
 src/engine/   PipeWire graph: virtual mic, processing node, links (engine.cpp)
 src/dsp/      filters, gate, compressor, limiter, pitch/robot/radio/reverb, RNNoise wrapper
-src/sfx/      clip decoding + loudness normalisation, real-time voice pool
+src/sfx/      clip decoding + loudness normalisation, real-time voice pool, recorder
 src/input/    evdev (keys/macro pads/gamepads), ALSA MIDI, binding manager
 src/sources/  library (JSON), link resolver + importer
-src/ui/       Qt widgets; app.cpp ties everything together
+src/ui/       Qt widgets (pad_grid: custom pads; theme: palettes + style sheet);
+              app.cpp ties everything together
 tools/        engine smoke test and headless end-to-end scripts
 ```
 
@@ -139,7 +151,8 @@ Testing is deliberately light, enough to catch regressions in the parts that are
 ctest --test-dir build
 ```
 
-This runs unit tests for the DSP, queue, voice pool, bindings, link resolver and clip loader.
+This runs unit tests for the DSP, queues, voice pool, bindings, link resolver, clip loader and
+recorder.
 
 ```bash
 tools/e2e_pipewire.sh build
@@ -152,14 +165,21 @@ voice and a clip into the engine, and checks that an app recording "voxfx Mic" h
 tools/e2e_app.sh build
 ```
 
-This does the same for the full GUI app (offscreen): it seeds a library, runs
-`voxfx ctl play`, checks the recording, and saves a screenshot.
+This does the same for the full GUI app (offscreen). It seeds a library, plays a sound with
+`voxfx ctl play`, records a new sound from a fake mic with `record-start`/`record-stop`, plays
+it back after the live voice has stopped, and checks that "voxfx Mic" heard both. It also saves
+screenshots of the window, the record and edit dialogs, and a small window. `THEME=light`,
+`LAYOUT=list` and `SHOT_DIR=…` change the look and where the images go.
+
+With `VOXFX_DEV=1` set, `voxfx ctl dev-screenshot <file>` (or `record:<file>`, `edit:<id>:<file>`,
+`size:<w>x<h>:<file>`) captures the UI, which helps when working on it headless.
 
 The end-to-end scripts need `pipewire`, `wireplumber`, `dbus-run-session` and `python3`.
 
 Real-time rules in the audio callback (`Engine::Impl::process`): no locks, no allocation, no
-I/O. Commands come in through a lock-free queue. Clips are removed by nulling their slot and
-freeing them two audio cycles later (`App::retire`/`App::reap`).
+I/O. Commands come in through a lock-free queue, recordings leave through a lock-free ring
+drained by a worker thread, and clips are removed by nulling their slot and freeing them two
+audio cycles later (`App::retire`/`App::reap`).
 
 ## Known gaps (prototype)
 

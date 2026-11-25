@@ -32,6 +32,7 @@ add_library(voxfx_core STATIC
   src/dsp/voice_chain.cpp
   src/sfx/clip_loader.cpp
   src/sfx/voice_pool.cpp
+  src/sfx/recorder.cpp
   src/engine/engine.cpp
   src/input/binding_manager.cpp
   src/input/evdev_backend.cpp
@@ -64,6 +65,8 @@ if(VOXFX_BUILD_GUI)
     src/ui/bind_dialog.cpp
     src/ui/devices_dialog.cpp
     src/ui/theme.cpp
+    src/ui/pad_grid.cpp
+    src/ui/sound_dialogs.cpp
   )
   target_link_libraries(voxfx PRIVATE voxfx_core Qt6::Widgets)
   target_compile_options(voxfx PRIVATE -Wall -Wextra -Wno-missing-field-initializers)
@@ -87,6 +90,7 @@ if(VOXFX_BUILD_TESTS)
     tests/test_bindings.cpp
     tests/test_link_resolver.cpp
     tests/test_clip_loader.cpp
+    tests/test_recorder.cpp
   )
   target_link_libraries(voxfx_tests PRIVATE voxfx_core Catch2::Catch2WithMain)
   target_compile_definitions(voxfx_tests PRIVATE
