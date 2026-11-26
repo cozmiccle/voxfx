@@ -1,0 +1,6 @@
+<RCC>
+  <qresource prefix="/">
+    <file alias="voxfx.png">icons/voxfx-256.png</file>
+    <file alias="voxfx-32.png">icons/voxfx-32.png</file>
+  </qresource>
+</RCC>

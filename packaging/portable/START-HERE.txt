@@ -1,0 +1,57 @@
+voxfx @VERSION@ (first test build)
+====================================
+
+Voice changer + soundboard for Linux (PipeWire). Made for Bazzite; should work
+on any current distro with PipeWire.
+
+INSTALL
+-------
+1. Extract this folder anywhere (e.g. Downloads).
+2. Open a terminal in it and run:      ./install.sh
+   voxfx is now in your app menu and the `voxfx` command works.
+   (Or skip installing and just run ./voxfx from this folder.)
+
+FIRST RUN
+---------
+1. Top left: pick your real microphone.
+2. In Discord (or OBS/a game) choose "voxfx Mic" as the input device.
+   In Discord also turn off its noise suppression/echo cancellation if your
+   voice sounds processed twice.
+3. Stay quiet and press "Calibrate gate".
+4. Add sounds: drag files in, "+ Add" (files or a MyInstants / Voicemod page
+   link), or "● Record" to record your own.
+5. Right-click a pad: Edit (name, picture, volume), Preview, Bind a key/pad.
+
+Closing the window keeps voxfx running in the tray so key bindings keep
+working. Quit from the tray icon.
+
+MACRO PADS / KEYBOARD / GAMEPAD BINDINGS (one-time setup)
+---------------------------------------------------------
+voxfx reads these devices directly, so your user needs the "input" group.
+On Bazzite the group has to be copied into /etc first:
+
+    grep -E '^input:' /usr/lib/group | sudo tee -a /etc/group
+    sudo usermod -aG input $USER
+
+Then log out and back in (or reboot). MIDI pads need no setup.
+Without this, everything else still works; use the menu's "Input devices…"
+to check.
+
+Steam: if Steam Input is on for a controller, voxfx may see Steam's virtual
+pad instead of (or as well as) the real one. Bind buttons while things are set
+up the way you normally play.
+
+Keyboard shortcuts without the input group: add a custom shortcut in your
+desktop settings that runs e.g.   voxfx ctl play "air horn"
+
+WHERE YOUR STUFF IS
+-------------------
+Sounds, pictures, bindings:  ~/.local/share/voxfx/
+Settings:                    ~/.config/voxfx/
+Uninstall: ./uninstall.sh  (keeps your sounds and settings)
+
+PROBLEMS?
+---------
+Run it from a terminal (`voxfx`) and send the output. `voxfx --version` shows
+the build. This is a first build: things that haven't been tried on real
+hardware yet are real microphones, macro pads, gamepads and MIDI pads.

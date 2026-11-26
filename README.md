@@ -65,6 +65,18 @@ To install it system-wide (puts the app in your launcher):
 sudo cmake --install build
 ```
 
+## Ready-made build
+
+`tools/make_portable.sh` produces `dist/voxfx-<version>-linux-x86_64.tar.gz`. It's a
+self-contained folder with Qt and the audio libraries bundled; PipeWire, ALSA, graphics
+drivers and other base libraries come from the system. Extract it and run `./install.sh`,
+which needs no root and works on immutable distros like Bazzite. That adds voxfx to the app
+menu and puts a `voxfx` command in `~/.local/bin`. `START-HERE.txt` inside the folder is
+the user guide.
+
+The result needs the glibc of the machine that built it, or newer (the script prints the
+minimum). Build on the oldest distro you want to support.
+
 ## First run
 
 1. Pick your real microphone at the top left. "System default" follows your desktop setting.
@@ -142,7 +154,8 @@ src/input/    evdev (keys/macro pads/gamepads), ALSA MIDI, binding manager
 src/sources/  library (JSON), link resolver + importer
 src/ui/       Qt widgets (pad_grid: custom pads; theme: palettes + style sheet);
               app.cpp ties everything together
-tools/        engine smoke test and headless end-to-end scripts
+tools/        engine smoke test, headless end-to-end scripts, portable bundle builder
+packaging/    desktop file, icon, udev rule example, files shipped in the portable bundle
 ```
 
 Testing is deliberately light, enough to catch regressions in the parts that are easy to break:

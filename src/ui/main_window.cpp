@@ -45,7 +45,7 @@ QString dbText(float db) { return QString("%1 dB").arg(double(db), 0, 'f', 0); }
 } // namespace
 
 MainWindow::MainWindow(App& app, QWidget* parent) : QMainWindow(parent), app_(app) {
-    setWindowTitle("voxfx");
+    setWindowTitle("voxfx " + QApplication::applicationVersion());
     setAcceptDrops(true);
 
     auto* split = new QSplitter;
@@ -601,8 +601,7 @@ bool MainWindow::eventFilter(QObject* o, QEvent* e) {
 
 void MainWindow::buildTray() {
     if (!QSystemTrayIcon::isSystemTrayAvailable()) return;
-    tray_ = new QSystemTrayIcon(QIcon::fromTheme("audio-input-microphone",
-                                                 style()->standardIcon(QStyle::SP_MediaVolume)), this);
+    tray_ = new QSystemTrayIcon(QIcon(":/voxfx.png"), this);
     tray_->setToolTip("voxfx");
     auto* menu = new QMenu(this);
     menu->addAction("Show voxfx", this, [this] { show(); raise(); activateWindow(); });

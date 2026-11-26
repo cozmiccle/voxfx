@@ -25,6 +25,7 @@ if(VOXFX_BUILD_GUI)
   find_package(Qt6 REQUIRED COMPONENTS Widgets)
 endif()
 set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTORCC ON)
 
 # ---- core library: everything except the GUI, so tests can link it ----------
 add_library(voxfx_core STATIC
@@ -67,11 +68,23 @@ if(VOXFX_BUILD_GUI)
     src/ui/theme.cpp
     src/ui/pad_grid.cpp
     src/ui/sound_dialogs.cpp
+    packaging/voxfx.qrc
   )
+  target_compile_definitions(voxfx PRIVATE VOXFX_VERSION="${PROJECT_VERSION}")
+  # Portable bundle (tools/make_portable.sh): look for libraries in ../lib first.
+  # DT_RPATH (not RUNPATH) so it also applies to libraries loaded by Qt plugins.
+  option(VOXFX_PORTABLE "Build for the self-contained portable bundle" OFF)
+  if(VOXFX_PORTABLE)
+    set_target_properties(voxfx PROPERTIES INSTALL_RPATH "\$ORIGIN/../lib" BUILD_WITH_INSTALL_RPATH ON)
+    target_link_options(voxfx PRIVATE "LINKER:--disable-new-dtags")
+  endif()
   target_link_libraries(voxfx PRIVATE voxfx_core Qt6::Widgets)
   target_compile_options(voxfx PRIVATE -Wall -Wextra -Wno-missing-field-initializers)
   install(TARGETS voxfx RUNTIME DESTINATION bin)
   install(FILES packaging/voxfx.desktop DESTINATION share/applications)
+  install(FILES packaging/icons/voxfx.svg DESTINATION share/icons/hicolor/scalable/apps)
+  install(FILES packaging/icons/voxfx-256.png DESTINATION share/icons/hicolor/256x256/apps RENAME voxfx.png)
+  install(FILES packaging/icons/voxfx-64.png DESTINATION share/icons/hicolor/64x64/apps RENAME voxfx.png)
 endif()
 
 # ---- headless smoke-test tool (engine only, no Qt GUI) -------------------------

@@ -12,6 +12,7 @@
 #include <QApplication>
 #include <QCoreApplication>
 #include <QLocalSocket>
+#include <QIcon>
 #include <QMessageBox>
 #include <QSettings>
 #include <QTimer>
@@ -57,11 +58,17 @@ bool alreadyRunning() {
 
 int main(int argc, char** argv) {
     if (argc > 1 && QByteArray(argv[1]) == "ctl") return runCtl(argc, argv);
+    if (argc > 1 && (QByteArray(argv[1]) == "--version" || QByteArray(argv[1]) == "-v")) {
+        printf("voxfx %s\n", VOXFX_VERSION);
+        return 0;
+    }
 
     QApplication qapp(argc, argv);
     QApplication::setApplicationName("voxfx");
     QApplication::setOrganizationName("voxfx");
     QApplication::setDesktopFileName("voxfx");
+    QApplication::setApplicationVersion(VOXFX_VERSION);
+    QApplication::setWindowIcon(QIcon(":/voxfx.png"));
     QApplication::setQuitOnLastWindowClosed(false); // keeps running in the tray
 
     if (alreadyRunning()) return 0;

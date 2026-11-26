@@ -1,0 +1,15 @@
+#!/bin/sh
+# voxfx launcher for the portable bundle. Usage: ./voxfx   or   ./voxfx ctl play "air horn"
+HERE=$(dirname "$(readlink -f "$0")")
+# Use only the Qt plugins shipped in this folder (the desktop's own Qt plugins are
+# built for a different Qt version and would be rejected or crash).
+unset QT_PLUGIN_PATH QML2_IMPORT_PATH QML_IMPORT_PATH
+# Native file dialogs through the desktop portal (works on KDE and GNOME).
+export QT_QPA_PLATFORMTHEME=xdgdesktopportal
+"$HERE/bin/voxfx" "$@"
+status=$?
+if [ $status -eq 127 ]; then
+    echo "voxfx could not start. Missing system libraries:" >&2
+    ldd "$HERE/bin/voxfx" | grep "not found" >&2
+fi
+exit $status
